@@ -1,0 +1,42 @@
+// File: backend/migrate.go
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+
+	"github.com/jmoiron/sqlx"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
+)
+
+func main() {
+	// 1. Load the environment variables
+	if err := godotenv.Load("../.env"); err != nil {
+		log.Fatalf("❌ FATAL: Could not find .env file.")
+	}
+	dbURL := os.Getenv("DB_URL")
+
+	// 2. Connect to Google Cloud SQL
+	db, err := sqlx.Connect("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("❌ FATAL: Connection failed: %v", err)
+	}
+	defer db.Close()
+
+	// 3. Read your schema file from the infra folder
+	schemaBytes, err := os.ReadFile("../infra/postgres/schema.sql")
+	if err != nil {
+		log.Fatalf("❌ FATAL: Could not read schema file. Error: %v", err)
+	}
+
+	// 4. Execute the SQL to build the tables
+	fmt.Println("🚀 Pushing schema to Mumbai Cloud SQL...")
+	_, err = db.Exec(string(schemaBytes))
+	if err != nil {
+		log.Fatalf("❌ FATAL: Failed to create tables. Error: %v", err)
+	}
+
+	fmt.Println("✅ SUCCESS: All tables created! The database is fully prepped.")
+}

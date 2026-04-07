@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dealjosh_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: dealjosh_admin
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: dealjosh_merchant
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # This automatically runs your schema on first start
+      - ./infra/postgres/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+
+volumes:
+  postgres_data:

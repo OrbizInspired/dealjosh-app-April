@@ -1,0 +1,45 @@
+// File: backend/test_cloud.go
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+
+	"github.com/jmoiron/sqlx"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
+)
+
+func main() {
+	// 1. Load the .env
+	err := godotenv.Load("../.env")
+	if err != nil {
+		log.Fatalf("❌ FATAL: Could not find .env file.")
+	}
+
+	dbURL := os.Getenv("DB_URL")
+
+	// 🛑 THE PROOF LINE: This tells us if Go actually sees your password!
+	if dbURL == "" {
+		log.Fatalf("❌ FATAL: The DB_URL is completely empty. Did you save the .env file?")
+	} else {
+		fmt.Println("✅ Found DB_URL in .env file!")
+	}
+
+	fmt.Println("--- Cloud SQL Connection Tester ---")
+
+	// 2. Attempt the connection
+	db, err := sqlx.Connect("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("❌ FATAL: Could not connect to Cloud SQL. Error: %v", err)
+	}
+	defer db.Close()
+
+	// 3. Ping the database
+	if err := db.Ping(); err != nil {
+		log.Fatalf("❌ FATAL: Ping failed. Error: %v", err)
+	}
+
+	fmt.Println("✅ SUCCESS: Connected to Google Cloud SQL successfully!")
+}

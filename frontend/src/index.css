@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+@theme {
+  /* Brand Spacing */
+  --spacing-175: 700px;
+  --spacing-212_5: 850px; /* For your h-[850px] requirement */
+  
+  /* Brand Colors */
+  --color-dj-orange: #CC5500;
+  --color-dj-yellow: #FFD700;
+}
