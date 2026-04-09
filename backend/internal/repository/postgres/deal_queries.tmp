@@ -1,0 +1,133 @@
+// /projects/dealjosh-merchant/backend/internal/repository/postgres/deal_queries.go
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+
+	"github.com/dealjosh/merchant-api/internal/domain"
+	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
+)
+
+// ==========================================
+// 🗄️ QUERY REGISTRY (Centralized SQL)
+// ==========================================
+const (
+	Deal_CreateDraft = `
+		INSERT INTO deals (id, title, description, suggested_price, image_url, ai_tags, status, created_at) 
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP) 
+		RETURNING id, created_at`
+
+	// 👇 THIS IS THE EXACT BLOCK THAT WAS CHANGED 👇
+	Deal_GetByID = `
+		SELECT id, title, description, suggested_price, image_url, 
+		       COALESCE(ai_tags, '{}'::text[]) as ai_tags, 
+		       status, created_at, offer_type, 
+		       COALESCE(offer_details, '{}'::jsonb) as offer_details, 
+		       COALESCE(is_recurring, false) as is_recurring, 
+		       COALESCE(selected_days, '{}'::integer[]) as selected_days, 
+		       start_date, end_date
+		FROM deals 
+		WHERE id = $1`
+	// 👆 👆 👆 👆 👆 👆 👆
+
+	Deal_UpdateLive = `
+		UPDATE deals 
+		SET title = $1, description = $2, suggested_price = $3, image_url = $4, 
+		    offer_type = $5, offer_details = $6, is_recurring = $7, 
+		    selected_days = $8, start_date = $9, end_date = $10, status = $11
+		WHERE id = $12`
+
+	Deal_InsertLive = `
+		INSERT INTO deals (id, title, description, suggested_price, image_url, offer_type, offer_details, is_recurring, selected_days, start_date, end_date, status)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id`
+)
+
+// ==========================================
+// 🛠️ REPOSITORY IMPLEMENTATION
+// ==========================================
+
+type pgDealRepo struct {
+	DB *sqlx.DB
+}
+
+func NewPostgresDealRepository(db *sqlx.DB) domain.DealRepository {
+	return &pgDealRepo{DB: db}
+}
+
+func (r *pgDealRepo) CreateDraft(ctx context.Context, d *domain.Deal) error {
+	err := r.DB.QueryRowContext(ctx, Deal_CreateDraft,
+		d.Title, d.Description, d.SuggestedPrice, d.ImageURL,
+		pq.Array(d.AITags), d.Status,
+	).Scan(&d.ID, &d.CreatedAt)
+
+	if err != nil {
+		return fmt.Errorf("failed to insert deal draft: %w", err)
+	}
+	return nil
+}
+
+func (r *pgDealRepo) GetByID(ctx context.Context, id string) (*domain.Deal, error) {
+	d := &domain.Deal{}
+	var offerDetailsJSON []byte
+
+	// Null-Safe Variables: Postgres NULLs will safely map to these without panicking
+	var desc, img, offerType, startDate, endDate sql.NullString
+	var price sql.NullFloat64
+
+	err := r.DB.QueryRowContext(ctx, Deal_GetByID, id).Scan(
+		&d.ID, &d.Title, &desc, &price,
+		&img, pq.Array(&d.AITags), &d.Status, &d.CreatedAt,
+		&offerType, &offerDetailsJSON, &d.IsRecurring, pq.Array(&d.SelectedDays),
+		&startDate, &endDate,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get deal by id: %w", err)
+	}
+
+	// Transfer Null-Safe variables back to standard Go strings/floats
+	d.Description = desc.String
+	d.SuggestedPrice = price.Float64
+	d.ImageURL = img.String
+	d.OfferType = offerType.String
+	d.StartDate = startDate.String
+	d.EndDate = endDate.String
+
+	// Parse JSONB
+	if len(offerDetailsJSON) > 0 && string(offerDetailsJSON) != "null" {
+		if err := json.Unmarshal(offerDetailsJSON, &d.OfferDetails); err != nil {
+			return nil, fmt.Errorf("failed to parse offer details: %w", err)
+		}
+	}
+
+	return d, nil
+}
+
+func (r *pgDealRepo) PublishDeal(ctx context.Context, d *domain.Deal) error {
+	offerDetailsJSON, err := json.Marshal(d.OfferDetails)
+	if err != nil {
+		return fmt.Errorf("failed to marshal offer details: %w", err)
+	}
+
+	// If ID exists (Agent drafted it first), UPDATE it
+	if d.ID != "" {
+		_, err = r.DB.ExecContext(ctx, Deal_UpdateLive,
+			d.Title, d.Description, d.SuggestedPrice, d.ImageURL,
+			d.OfferType, offerDetailsJSON, d.IsRecurring,
+			pq.Array(d.SelectedDays), d.StartDate, d.EndDate, d.Status, d.ID,
+		)
+		return err
+	}
+
+	// If NO ID exists (Manual Entry), INSERT it
+	return r.DB.QueryRowContext(ctx, Deal_InsertLive,
+		d.Title, d.Description, d.SuggestedPrice, d.ImageURL,
+		d.OfferType, offerDetailsJSON, d.IsRecurring,
+		pq.Array(d.SelectedDays), d.StartDate, d.EndDate, d.Status,
+	).Scan(&d.ID)
+}

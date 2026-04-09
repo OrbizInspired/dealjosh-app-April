@@ -1,30 +1,30 @@
+// dealjosh-merchant/backend/cmd/auth-service/main.go
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"time"
 
+	"cloud.google.com/go/storage"
 	"github.com/dealjosh/merchant-api/internal/api/delivery"
 	"github.com/dealjosh/merchant-api/internal/config"
+	"github.com/dealjosh/merchant-api/internal/integration"
 	"github.com/dealjosh/merchant-api/internal/repository/postgres"
 	"github.com/dealjosh/merchant-api/internal/usecase"
 )
 
-// CORS Middleware to allow your React app (from any IP) to talk to Go
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Allow your Vite frontend from any network IP
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Authorization")
 
-		// Handle preflight OPTIONS requests from the browser
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-
 		next.ServeHTTP(w, r)
 	})
 }
@@ -40,7 +40,17 @@ func main() {
 	}
 	defer db.Close()
 
-	// 3. Layer Wiring (Dependency Injection)
+	// 3. Initialize Google Cloud Storage Client
+	ctx := context.Background()
+	gcsClient, err := storage.NewClient(ctx)
+	if err != nil {
+		log.Fatalf("Fatal: GCS Client initialization failed: %v", err)
+	}
+	defer gcsClient.Close()
+
+	// ==========================================
+	// LAYER WIRING (DEPENDENCY INJECTION)
+	// ==========================================
 
 	// --- Auth Domain ---
 	userRepo := postgres.NewUserRepository(db)
@@ -49,15 +59,28 @@ func main() {
 
 	// --- Store Domain ---
 	storeRepo := postgres.NewStoreRepo(db)
-	storeUseCase := usecase.NewStoreUseCase(storeRepo) // 👇 WE ADDED THIS LINE! 👇
+	storeUseCase := usecase.NewStoreUseCase(storeRepo)
 
 	// --- Category Domain ---
 	catRepo := postgres.NewCategoryRepo(db)
 	catHandler := delivery.NewCategoryHandler(catRepo)
 
+	// --- Deal Domain (Agentic Flow) ---
+	dealRepo := postgres.NewPostgresDealRepository(db)
+
+	dealAgent := integration.NewGeminiAgent(cfg.GeminiAPIKey)
+	storageSvc := integration.NewGCSStorage(gcsClient, cfg.GCSBucketName)
+
+	// 🚀 UPDATE: Added 15*time.Second to match the updated constructor!
+	dealUseCase := usecase.NewDealUsecase(dealRepo, dealAgent, storageSvc, 15*time.Second)
+	dealHandler := delivery.NewDealHandler(dealUseCase)
+
+	// ==========================================
+	// ROUTER & SERVER CONFIG
+	// ==========================================
+
 	// 4. Mount the Router
-	// 👇 We pass the storeUseCase to the router instead of the raw repo 👇
-	router := delivery.NewRouter(authHandler, storeUseCase, catHandler)
+	router := delivery.NewRouter(authHandler, storeUseCase, catHandler, dealHandler)
 
 	// 5. Production-Ready Server Configuration
 	log.Printf("DealJosh Merchant Service live on port %s", cfg.Port)
@@ -65,8 +88,8 @@ func main() {
 	server := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      corsMiddleware(router),
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
 	}
 
 	// 6. Start the Engine

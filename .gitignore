@@ -1,0 +1,15 @@
+# Backend ignores
+backend/bin/
+backend/*.exe
+backend/.env
+backend/service-account.json
+
+# Frontend ignores
+frontend/node_modules/
+frontend/.next/
+frontend/dist/
+frontend/.env.local
+
+# OS ignores
+.DS_Store
+node_modules

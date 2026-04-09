@@ -9,8 +9,10 @@ import MerchantLayout from './layouts/MerchantLayout';
 // 2. Import Screens
 import LoginScreen from './screens/LoginScreen';
 import StoreRegistrationScreen from './screens/StoreRegistrationScreen';
-import CreateDealScreen from './screens/deals/CreateDealScreen'; 
+import CreateDealScreen from './screens/deals/CreateDealScreen';
 import DealDashboard from './screens/deals/DealDashboard';
+// 🚀 ADDED: Import the new Manage Deal Screen
+import ManageDealScreen from './screens/deals/ManageDealScreen';
 
 // 3. Centralized Route Configuration (Highly Scalable)
 const router = createBrowserRouter([
@@ -29,11 +31,16 @@ const router = createBrowserRouter([
       },
       {
         path: "dashboard",
-        element: <DealDashboard /> // 👈 Replaced the placeholder div with the real screen
+        element: <DealDashboard />
       },
       {
         path: "post-deal",
-        element: <CreateDealScreen /> // 👈 Added the new Create Deal route
+        element: <CreateDealScreen />
+      },
+      // 🚀 ADDED: The dynamic Manage Deal route
+      {
+        path: "manage-deal/:dealId",
+        element: <ManageDealScreen />
       }
     ]
   }
